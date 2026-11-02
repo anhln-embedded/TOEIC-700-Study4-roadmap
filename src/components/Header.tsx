@@ -9,7 +9,7 @@ interface HeaderProps {
   onImport: (e: React.ChangeEvent<HTMLInputElement>) => void;
   isDarkMode: boolean;
   onToggleTheme: () => void;
-  userEmail: string;
+  username: string;
   syncStatus: 'saved' | 'saving' | 'error';
   onSignOut: () => void;
 }
@@ -20,7 +20,7 @@ export const Header: React.FC<HeaderProps> = ({
   onImport,
   isDarkMode,
   onToggleTheme,
-  userEmail,
+  username,
   syncStatus,
   onSignOut,
 }) => {
@@ -51,9 +51,9 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Action Toolbar */}
           <div className="flex items-center gap-2 flex-wrap lg:flex-nowrap">
-            <div className="inline-flex items-center gap-2 rounded-lg border border-white/15 bg-white/10 px-2.5 py-2 text-xs text-white" title={userEmail}>
+            <div className="inline-flex items-center gap-2 rounded-lg border border-white/15 bg-white/10 px-2.5 py-2 text-xs text-white" title={`Tài khoản: ${username}`}>
               <UserRound className="h-4 w-4 shrink-0" />
-              <span className="hidden max-w-36 truncate xl:inline">{userEmail}</span>
+              <span className="hidden max-w-36 truncate xl:inline">{username}</span>
               <span className="inline-flex items-center gap-1 text-blue-100">
                 {syncStatus === 'saving' ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : syncStatus === 'error' ? <CloudOff className="h-3.5 w-3.5 text-rose-300" /> : <Cloud className="h-3.5 w-3.5 text-emerald-300" />}
                 <span className="hidden 2xl:inline">{syncStatus === 'saving' ? 'Đang lưu' : syncStatus === 'error' ? 'Lỗi đồng bộ' : 'Đã đồng bộ'}</span>

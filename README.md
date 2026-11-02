@@ -13,7 +13,7 @@
 - Đồng hồ mô phỏng thời gian làm bài 120 phút.
 - Cẩm nang 43 dạng câu hỏi thuộc TOEIC Part 1–7.
 - Giao diện sáng/tối và bố cục responsive.
-- Đăng ký/đăng nhập bằng email; mỗi tài khoản có tiến độ riêng.
+- Đăng ký/đăng nhập bằng tên tài khoản và mật khẩu; mỗi tài khoản có tiến độ riêng.
 - Đồng bộ dữ liệu giữa nhiều thiết bị theo thời gian thực.
 - Sao lưu và phục hồi tiến độ bằng tệp JSON.
 
@@ -50,7 +50,8 @@ NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-or-publishable-key
 ```
 
-5. Trong **Authentication → URL Configuration**, thêm địa chỉ local và domain production vào Redirect URLs.
+5. Trong **Authentication → Providers → Email**, tắt **Confirm email**. Ứng dụng dùng một địa chỉ nội bộ được tạo từ username và không gửi email cho người dùng.
+6. Trong **Authentication → URL Configuration**, thêm địa chỉ local và domain production vào Redirect URLs.
 
 Chỉ sử dụng anon/publishable key ở frontend. Không đưa secret key hoặc service-role key vào `.env.local`, GitHub hay Vercel.
 
@@ -81,7 +82,9 @@ Tiến độ, điểm số, ghi chú và lựa chọn giao diện được lưu 
 1. Import repository GitHub vào Vercel.
 2. Khai báo `NEXT_PUBLIC_SUPABASE_URL` và `NEXT_PUBLIC_SUPABASE_ANON_KEY` trong Project Settings → Environment Variables.
 3. Deploy, sau đó thêm URL Vercel vào Supabase Authentication → URL Configuration.
-4. Bật email confirmation trong Supabase nếu muốn người dùng xác minh email trước khi đăng nhập.
+4. Đảm bảo **Confirm email** đang tắt để tài khoản username có thể đăng nhập ngay.
+
+Ứng dụng không thu thập email thật. Vì vậy không có chức năng khôi phục mật khẩu qua email; người dùng cần tự lưu mật khẩu an toàn.
 
 ## Cấu trúc chính
 

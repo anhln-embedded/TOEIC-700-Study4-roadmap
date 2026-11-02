@@ -335,7 +335,7 @@ export default function Home() {
         onImport={handleImport}
         isDarkMode={isDarkMode}
         onToggleTheme={handleToggleTheme}
-        userEmail={user.email ?? 'Tài khoản học tập'}
+        username={typeof user.user_metadata?.username === 'string' ? user.user_metadata.username : user.email?.split('@')[0] ?? 'Tài khoản học tập'}
         syncStatus={syncStatus}
         onSignOut={() => { void handleSignOut(); }}
       />

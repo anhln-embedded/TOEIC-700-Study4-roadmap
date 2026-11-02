@@ -1,22 +1,26 @@
 'use client';
 
 import React, { useState } from 'react';
-import { AlertCircle, ArrowRight, CheckCircle2, Eye, EyeOff, LockKeyhole, Mail, Target } from 'lucide-react';
+import { AlertCircle, ArrowRight, CheckCircle2, Eye, EyeOff, LockKeyhole, Target, UserRound } from 'lucide-react';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
 type AuthMode = 'login' | 'signup';
 
 const translateAuthError = (message: string) => {
-  if (message.includes('Invalid login credentials')) return 'Email hoặc mật khẩu không đúng.';
-  if (message.includes('User already registered')) return 'Email này đã được đăng ký.';
+  if (message.includes('Invalid login credentials')) return 'Tên tài khoản hoặc mật khẩu không đúng.';
+  if (message.includes('User already registered')) return 'Tên tài khoản này đã được sử dụng.';
   if (message.includes('Password should be')) return 'Mật khẩu cần có ít nhất 6 ký tự.';
   if (message.includes('Email rate limit')) return 'Bạn thao tác quá nhanh. Hãy thử lại sau ít phút.';
   return message;
 };
 
+const normalizeUsername = (value: string) => value.trim().toLowerCase();
+const isValidUsername = (value: string) => /^[a-z0-9._-]{3,24}$/.test(value);
+const toInternalEmail = (username: string) => `${username}@login.toeic-roadmap.invalid`;
+
 export const AuthScreen: React.FC = () => {
   const [mode, setMode] = useState<AuthMode>('login');
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -39,16 +43,28 @@ export const AuthScreen: React.FC = () => {
       return;
     }
 
+    const normalizedUsername = normalizeUsername(username);
+    if (!isValidUsername(normalizedUsername)) {
+      setError('Tên tài khoản cần 3–24 ký tự, chỉ gồm chữ thường không dấu, số, dấu chấm, gạch dưới hoặc gạch ngang.');
+      return;
+    }
+
+    const internalEmail = toInternalEmail(normalizedUsername);
+
     setIsSubmitting(true);
     try {
       if (mode === 'signup') {
-        const { data, error: signUpError } = await supabase.auth.signUp({ email, password });
+        const { data, error: signUpError } = await supabase.auth.signUp({
+          email: internalEmail,
+          password,
+          options: { data: { username: normalizedUsername } },
+        });
         if (signUpError) throw signUpError;
         if (!data.session) {
-          setNotice('Đã tạo tài khoản. Hãy mở email và bấm liên kết xác nhận trước khi đăng nhập.');
+          setError('Supabase đang bật xác nhận email. Hãy tắt Confirm email trong Authentication → Providers → Email để đăng nhập bằng tên tài khoản.');
         }
       } else {
-        const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+        const { error: signInError } = await supabase.auth.signInWithPassword({ email: internalEmail, password });
         if (signInError) throw signInError;
       }
     } catch (authError) {
@@ -99,8 +115,9 @@ export const AuthScreen: React.FC = () => {
           </div>
 
           <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-            <label className="block text-xs font-bold text-stone-700">Email
-              <span className="relative mt-1.5 block"><Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" /><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="email" placeholder="ban@example.com" className="w-full rounded-xl border border-stone-300 bg-white py-3 pl-10 pr-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" /></span>
+            <label className="block text-xs font-bold text-stone-700">Tên tài khoản
+              <span className="relative mt-1.5 block"><UserRound className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" /><input type="text" value={username} onChange={(event) => setUsername(event.target.value)} required minLength={3} maxLength={24} autoComplete="username" autoCapitalize="none" spellCheck={false} placeholder="Ví dụ: anhln700" className="w-full rounded-xl border border-stone-300 bg-white py-3 pl-10 pr-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" /></span>
+              <span className="mt-1.5 block text-[10px] font-medium text-stone-400">3–24 ký tự: chữ không dấu, số, dấu chấm, _ hoặc -</span>
             </label>
             <label className="block text-xs font-bold text-stone-700">Mật khẩu
               <span className="relative mt-1.5 block"><LockKeyhole className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" /><input type={showPassword ? 'text' : 'password'} value={password} onChange={(event) => setPassword(event.target.value)} required minLength={6} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} placeholder="Tối thiểu 6 ký tự" className="w-full rounded-xl border border-stone-300 bg-white py-3 pl-10 pr-11 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" /><button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700" aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}>{showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button></span>
