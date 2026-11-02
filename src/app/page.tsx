@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import type { User } from '@supabase/supabase-js';
 import { Header } from '@/components/Header';
 import { AuthScreen } from '@/components/AuthScreen';
 import { DashboardStats } from '@/components/DashboardStats';
@@ -12,9 +11,14 @@ import { DayCard } from '@/components/DayCard';
 import { ExamTimerModal } from '@/components/ExamTimerModal';
 import { QuickToast } from '@/components/QuickToast';
 import { SCHEDULE_DATA, UserProgressMap } from '@/data/scheduleData';
-import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+
+interface UserState {
+  id: string;
+  username: string;
+}
 
 export default function Home() {
+  const [currentUser, setCurrentUser] = useState<UserState | null>(null);
   const [progress, setProgress] = useState<UserProgressMap>({});
   const [activeWeek, setActiveWeek] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -23,146 +27,81 @@ export default function Home() {
   const [isTimerOpen, setIsTimerOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
-  const [user, setUser] = useState<User | null>(null);
-  const [authReady, setAuthReady] = useState(!isSupabaseConfigured);
-  const [dataReady, setDataReady] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Restore the Supabase session. Authentication state is shared safely across tabs,
-  // while learning data itself always comes from the database.
+  // 1. Check existing session on mount
   useEffect(() => {
-    const client = supabase;
-    if (!client) return;
-
     let active = true;
-    client.auth.getSession().then(({ data }) => {
-      if (!active) return;
-      setUser(data.session?.user ?? null);
-      setAuthReady(true);
-    });
-
-    const { data: authListener } = client.auth.onAuthStateChange((_event, session) => {
-      if (!active) return;
-      setUser(session?.user ?? null);
-      setDataReady(false);
-      if (!session) {
-        setProgress({});
-        setIsDarkMode(false);
-        document.documentElement.classList.remove('dark');
+    const checkSession = async () => {
+      try {
+        const storedUser = localStorage.getItem('toeic_session_user');
+        if (storedUser) {
+          const userObj = JSON.parse(storedUser) as UserState;
+          if (userObj?.username) {
+            const res = await fetch(`/toeic/api/progress?username=${encodeURIComponent(userObj.username)}`);
+            if (res.ok) {
+              const resData = await res.json();
+              if (active && resData.success && resData.data) {
+                setCurrentUser(userObj);
+                setProgress(resData.data.progress || {});
+                const isDark = resData.data.theme === 'dark';
+                setIsDarkMode(isDark);
+                document.documentElement.classList.toggle('dark', isDark);
+                setAuthReady(true);
+                return;
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Session restore failed', e);
       }
-      setAuthReady(true);
-    });
+      if (active) setAuthReady(true);
+    };
 
+    void checkSession();
     return () => {
       active = false;
-      authListener.subscription.unsubscribe();
     };
   }, []);
-
-  // Load the signed-in user's private row and listen for changes from other devices.
-  useEffect(() => {
-    const client = supabase;
-    if (!client || !user) return;
-
-    let active = true;
-
-    const loadProfile = async () => {
-      setSyncStatus('saving');
-      const { data, error } = await client
-        .from('study_profiles')
-        .select('progress, theme')
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-      if (!active) return;
-      if (error) {
-        console.error('Failed to load cloud progress', error);
-        setSyncStatus('error');
-        setDataReady(true);
-        return;
-      }
-
-      const cloudProgress = (data?.progress ?? {}) as UserProgressMap;
-      const cloudTheme = data?.theme === 'dark';
-      setProgress(cloudProgress);
-      setIsDarkMode(cloudTheme);
-      document.documentElement.classList.toggle('dark', cloudTheme);
-
-      if (!data) {
-        const { error: createError } = await client.from('study_profiles').insert({
-          user_id: user.id,
-          progress: {},
-          theme: 'light',
-        });
-        if (createError) {
-          console.error('Failed to create cloud profile', createError);
-          setSyncStatus('error');
-          setDataReady(true);
-          return;
-        }
-      }
-
-      setSyncStatus('saved');
-      setDataReady(true);
-    };
-
-    void loadProfile();
-
-    const channel = client
-      .channel(`study-profile-${user.id}`)
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'study_profiles', filter: `user_id=eq.${user.id}` },
-        (payload) => {
-          if (!active) return;
-          const row = payload.new as { progress?: UserProgressMap; theme?: 'light' | 'dark' };
-          if (row.progress) setProgress(row.progress);
-          if (row.theme) {
-            const nextDarkMode = row.theme === 'dark';
-            setIsDarkMode(nextDarkMode);
-            document.documentElement.classList.toggle('dark', nextDarkMode);
-          }
-          setSyncStatus('saved');
-        },
-      )
-      .subscribe();
-
-    return () => {
-      active = false;
-      void client.removeChannel(channel);
-    };
-  }, [user]);
 
   useEffect(() => () => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
   }, []);
 
-  const queueCloudSave = (nextProgress: UserProgressMap, nextDarkMode: boolean) => {
-    const client = supabase;
-    if (!client || !user) return;
-
+  const queueSave = (nextProgress: UserProgressMap, nextDarkMode: boolean) => {
+    if (!currentUser) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     setSyncStatus('saving');
     saveTimerRef.current = setTimeout(async () => {
-      const { error } = await client.from('study_profiles').upsert({
-        user_id: user.id,
-        progress: nextProgress,
-        theme: nextDarkMode ? 'dark' : 'light',
-        updated_at: new Date().toISOString(),
-      });
-      if (error) {
-        console.error('Failed to sync cloud progress', error);
+      try {
+        const res = await fetch('/toeic/api/progress', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: currentUser.username,
+            progress: nextProgress,
+            theme: nextDarkMode ? 'dark' : 'light',
+          }),
+        });
+
+        if (res.ok) {
+          setSyncStatus('saved');
+        } else {
+          setSyncStatus('error');
+        }
+      } catch (err) {
+        console.error('Failed to sync progress to server', err);
         setSyncStatus('error');
-      } else {
-        setSyncStatus('saved');
       }
-    }, 500);
+    }, 300);
   };
 
   const saveProgress = (newProgress: UserProgressMap) => {
     setProgress(newProgress);
-    queueCloudSave(newProgress, isDarkMode);
+    queueSave(newProgress, isDarkMode);
   };
 
   const showToast = (msg: string) => {
@@ -172,26 +111,41 @@ export default function Home() {
     }, 2400);
   };
 
-  // Toggle Theme
   const handleToggleTheme = () => {
     const next = !isDarkMode;
     setIsDarkMode(next);
     document.documentElement.classList.toggle('dark', next);
-    queueCloudSave(progress, next);
+    queueSave(progress, next);
   };
 
-  const handleSignOut = async () => {
-    const client = supabase;
-    if (!client || !user) return;
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+  const handleSignOut = () => {
+    localStorage.removeItem('toeic_session_user');
+    setCurrentUser(null);
+    setProgress({});
+    setIsDarkMode(false);
+    document.documentElement.classList.remove('dark');
+    showToast('Đã đăng xuất khỏi tài khoản.');
+  };
+
+  const handleAuthSuccess = async (user: UserState) => {
+    setCurrentUser(user);
+    localStorage.setItem('toeic_session_user', JSON.stringify(user));
     setSyncStatus('saving');
-    await client.from('study_profiles').upsert({
-      user_id: user.id,
-      progress,
-      theme: isDarkMode ? 'dark' : 'light',
-      updated_at: new Date().toISOString(),
-    });
-    await client.auth.signOut();
+    try {
+      const res = await fetch(`/toeic/api/progress?username=${encodeURIComponent(user.username)}`);
+      if (res.ok) {
+        const resData = await res.json();
+        if (resData.success && resData.data) {
+          setProgress(resData.data.progress || {});
+          const isDark = resData.data.theme === 'dark';
+          setIsDarkMode(isDark);
+          document.documentElement.classList.toggle('dark', isDark);
+        }
+      }
+      setSyncStatus('saved');
+    } catch {
+      setSyncStatus('error');
+    }
   };
 
   // Score Updater
@@ -241,54 +195,17 @@ export default function Home() {
     showToast(`Đã chuyển trạng thái: ${status === 'completed' ? 'Đã hoàn thành 🎉' : status === 'inprogress' ? 'Đang làm ✍️' : 'Chưa làm'}`);
   };
 
-  // Export Progress JSON
-  const handleExport = () => {
-    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(progress, null, 2));
-    const a = document.createElement('a');
-    a.setAttribute('href', dataStr);
-    a.setAttribute('download', `TOEIC_700_Study4_Backup_${new Date().toISOString().slice(0, 10)}.json`);
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    showToast('Đã tải xuống file sao lưu tiến độ!');
-  };
-
-  // Import Progress JSON
-  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const imported = JSON.parse(event.target?.result as string);
-        if (typeof imported === 'object' && imported !== null) {
-          saveProgress(imported);
-          showToast('Phục hồi dữ liệu thành công!');
-        }
-      } catch {
-        alert('File sao lưu không hợp lệ!');
-      }
-    };
-    reader.readAsText(file);
-    e.target.value = '';
-  };
-
   // Filtering
   const filteredSchedule = SCHEDULE_DATA.filter((item, index) => {
-    // Week filter
     if (activeWeek !== 'all' && item.week !== activeWeek) return false;
 
-    // Status filter
     const p = progress[index] || { status: 'pending' };
     if (statusFilter !== 'all' && (p.status || 'pending') !== statusFilter) return false;
 
-    // Mode filter
     if (modeFilter !== 'all') {
       if (!item.mode.toLowerCase().includes(modeFilter.toLowerCase())) return false;
     }
 
-    // Search
     if (searchQuery.trim() !== '') {
       const q = searchQuery.toLowerCase();
       const matchName = item.test_name.toLowerCase().includes(q);
@@ -305,24 +222,15 @@ export default function Home() {
     return (
       <main className="min-h-screen bg-slate-950 text-white flex items-center justify-center">
         <div className="text-center">
-          <div className="mx-auto h-9 w-9 animate-spin rounded-full border-4 border-white/20 border-t-white" />
-          <p className="mt-4 text-sm font-semibold text-slate-300">Đang kiểm tra phiên đăng nhập…</p>
+          <div className="mx-auto h-9 w-9 animate-spin rounded-full border-4 border-white/20 border-t-amber-400" />
+          <p className="mt-4 text-sm font-semibold text-slate-300">Đang khởi động ứng dụng…</p>
         </div>
       </main>
     );
   }
 
-  if (!user) return <AuthScreen />;
-
-  if (!dataReady) {
-    return (
-      <main className="min-h-screen bg-slate-950 text-white flex items-center justify-center">
-        <div className="text-center">
-          <div className="mx-auto h-9 w-9 animate-spin rounded-full border-4 border-white/20 border-t-blue-400" />
-          <p className="mt-4 text-sm font-semibold text-slate-300">Đang tải tiến độ từ cloud…</p>
-        </div>
-      </main>
-    );
+  if (!currentUser) {
+    return <AuthScreen onSuccess={handleAuthSuccess} />;
   }
 
   return (
@@ -331,13 +239,11 @@ export default function Home() {
       {/* Top Navbar */}
       <Header
         onOpenTimer={() => setIsTimerOpen(true)}
-        onExport={handleExport}
-        onImport={handleImport}
         isDarkMode={isDarkMode}
         onToggleTheme={handleToggleTheme}
-        username={typeof user.user_metadata?.username === 'string' ? user.user_metadata.username : user.email?.split('@')[0] ?? 'Tài khoản học tập'}
+        username={currentUser.username}
         syncStatus={syncStatus}
-        onSignOut={() => { void handleSignOut(); }}
+        onSignOut={handleSignOut}
       />
 
       {/* Main Container */}
@@ -345,7 +251,7 @@ export default function Home() {
         <div className="mb-5 sm:mb-6">
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-amber-700">Bảng điều khiển học tập</p>
           <h2 className="mt-1 text-xl sm:text-2xl font-bold tracking-tight text-stone-900">Tổng quan lộ trình 8 tuần</h2>
-          <p className="mt-1 text-sm text-stone-500">Theo dõi tiến độ, điểm số và chọn bài cần tập trung hôm nay.</p>
+          <p className="mt-1 text-sm text-stone-500">Tiến độ lưu riêng cho tài khoản <strong className="text-stone-700 font-semibold">{currentUser.username}</strong> trên máy chủ.</p>
         </div>
         
         {/* Metric Cards */}
@@ -401,7 +307,7 @@ export default function Home() {
       {/* Footer */}
       <footer className="border-t border-amber-200/80 bg-white py-6 px-4 text-center text-xs text-stone-500">
         <p className="font-semibold text-amber-900">TOEIC 700+ Study4 Roadmap | Lộ trình luyện thi 8 tuần</p>
-        <p className="mt-1">Tiến độ được đồng bộ riêng theo tài khoản qua Supabase · Không lưu dữ liệu học tập trong localStorage</p>
+        <p className="mt-1">Dữ liệu lộ trình học tập được lưu trữ và phân tách riêng theo từng tài khoản trên Server.</p>
       </footer>
 
       {/* Exam Timer Modal */}

@@ -1,12 +1,10 @@
 'use client';
 
 import React from 'react';
-import { BookOpen, Cloud, CloudOff, Download, LoaderCircle, LogOut, Moon, Sun, Target, Timer, Upload, UserRound } from 'lucide-react';
+import { BookOpen, Cloud, CloudOff, LoaderCircle, LogOut, Moon, Sun, Target, Timer, UserRound } from 'lucide-react';
 
 interface HeaderProps {
   onOpenTimer: () => void;
-  onExport: () => void;
-  onImport: (e: React.ChangeEvent<HTMLInputElement>) => void;
   isDarkMode: boolean;
   onToggleTheme: () => void;
   username: string;
@@ -16,8 +14,6 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({
   onOpenTimer,
-  onExport,
-  onImport,
   isDarkMode,
   onToggleTheme,
   username,
@@ -68,26 +64,6 @@ export const Header: React.FC<HeaderProps> = ({
               <Timer className="w-4 h-4 text-amber-600" />
               <span>Đồng hồ 120p</span>
             </button>
-
-            {/* Export Backup */}
-            <button
-              onClick={onExport}
-              title="Sao lưu tiến độ học tập ra file JSON"
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs sm:text-sm font-semibold bg-white/10 hover:bg-white/20 text-white border border-white/15 backdrop-blur-sm transition-colors cursor-pointer"
-            >
-              <Download className="w-4 h-4 text-white" />
-              <span className="hidden sm:inline">Sao lưu</span>
-            </button>
-
-            {/* Import Backup */}
-            <label
-              title="Phục hồi dữ liệu từ file sao lưu JSON"
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs sm:text-sm font-semibold bg-white/10 hover:bg-white/20 text-white border border-white/15 backdrop-blur-sm transition-colors cursor-pointer"
-            >
-              <Upload className="w-4 h-4 text-white" />
-              <span className="hidden sm:inline">Phục hồi</span>
-              <input type="file" accept=".json" onChange={onImport} className="hidden" />
-            </label>
 
             {/* Open Study4 Quick Link */}
             <a

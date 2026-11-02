@@ -2,23 +2,16 @@
 
 import React, { useState } from 'react';
 import { AlertCircle, ArrowRight, CheckCircle2, Eye, EyeOff, LockKeyhole, Target, UserRound } from 'lucide-react';
-import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+
+interface AuthScreenProps {
+  onSuccess: (user: { id: string; username: string }) => void;
+}
 
 type AuthMode = 'login' | 'signup';
 
-const translateAuthError = (message: string) => {
-  if (message.includes('Invalid login credentials')) return 'Tên tài khoản hoặc mật khẩu không đúng.';
-  if (message.includes('User already registered')) return 'Tên tài khoản này đã được sử dụng.';
-  if (message.includes('Password should be')) return 'Mật khẩu cần có ít nhất 6 ký tự.';
-  if (message.includes('Email rate limit')) return 'Bạn thao tác quá nhanh. Hãy thử lại sau ít phút.';
-  return message;
-};
+const isValidUsername = (value: string) => /^[a-z0-9._-]{3,24}$/.test(value.trim().toLowerCase());
 
-const normalizeUsername = (value: string) => value.trim().toLowerCase();
-const isValidUsername = (value: string) => /^[a-z0-9._-]{3,24}$/.test(value);
-const toInternalEmail = (username: string) => `${username}@login.toeic-roadmap.invalid`;
-
-export const AuthScreen: React.FC = () => {
+export const AuthScreen: React.FC<AuthScreenProps> = ({ onSuccess }) => {
   const [mode, setMode] = useState<AuthMode>('login');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -38,56 +31,38 @@ export const AuthScreen: React.FC = () => {
     setError('');
     setNotice('');
 
-    if (!supabase) {
-      setError('Supabase chưa được cấu hình.');
+    const cleanUser = username.trim().toLowerCase();
+    if (!isValidUsername(cleanUser)) {
+      setError('Tên tài khoản cần 3–24 ký tự (chữ thường, số, dấu chấm, gạch dưới hoặc gạch ngang).');
       return;
     }
 
-    const normalizedUsername = normalizeUsername(username);
-    if (!isValidUsername(normalizedUsername)) {
-      setError('Tên tài khoản cần 3–24 ký tự, chỉ gồm chữ thường không dấu, số, dấu chấm, gạch dưới hoặc gạch ngang.');
+    if (password.length < 6) {
+      setError('Mật khẩu cần ít nhất 6 ký tự.');
       return;
     }
-
-    const internalEmail = toInternalEmail(normalizedUsername);
 
     setIsSubmitting(true);
     try {
-      if (mode === 'signup') {
-        const { data, error: signUpError } = await supabase.auth.signUp({
-          email: internalEmail,
-          password,
-          options: { data: { username: normalizedUsername } },
-        });
-        if (signUpError) throw signUpError;
-        if (!data.session) {
-          setError('Supabase đang bật xác nhận email. Hãy tắt Confirm email trong Authentication → Providers → Email để đăng nhập bằng tên tài khoản.');
-        }
-      } else {
-        const { error: signInError } = await supabase.auth.signInWithPassword({ email: internalEmail, password });
-        if (signInError) throw signInError;
+      const res = await fetch('/toeic/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: mode, username: cleanUser, password }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Xác thực không thành công.');
       }
-    } catch (authError) {
-      const message = authError instanceof Error ? authError.message : 'Không thể xác thực tài khoản.';
-      setError(translateAuthError(message));
+
+      onSuccess(data.user);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Không thể kết nối đến máy chủ.';
+      setError(message);
     } finally {
       setIsSubmitting(false);
     }
   };
-
-  if (!isSupabaseConfigured) {
-    return (
-      <main className="min-h-screen bg-slate-950 px-4 py-12 text-white flex items-center justify-center">
-        <div className="w-full max-w-xl rounded-3xl border border-white/10 bg-white/5 p-6 sm:p-8 shadow-2xl">
-          <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-400 text-slate-950"><AlertCircle className="h-6 w-6" /></div>
-          <h1 className="text-2xl font-black">Chưa kết nối cơ sở dữ liệu</h1>
-          <p className="mt-2 text-sm leading-relaxed text-slate-300">Tạo project Supabase, chạy file <code className="rounded bg-white/10 px-1.5 py-0.5">supabase/schema.sql</code>, rồi khai báo hai biến môi trường dưới đây.</p>
-          <pre className="mt-5 overflow-x-auto rounded-xl border border-white/10 bg-slate-900 p-4 text-xs leading-6 text-blue-200">NEXT_PUBLIC_SUPABASE_URL=...{`\n`}NEXT_PUBLIC_SUPABASE_ANON_KEY=...</pre>
-          <p className="mt-4 text-xs text-slate-400">Xem hướng dẫn đầy đủ trong README.md. Không đưa secret/service-role key vào mã nguồn.</p>
-        </div>
-      </main>
-    );
-  }
 
   return (
     <main className="min-h-screen bg-slate-950 px-4 py-10 text-white flex items-center justify-center">
@@ -96,18 +71,20 @@ export const AuthScreen: React.FC = () => {
           <div>
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/15 bg-white/10"><Target className="h-6 w-6" /></div>
             <h1 className="mt-7 text-3xl font-black leading-tight">TOEIC 700+<br />Study4 Roadmap</h1>
-            <p className="mt-4 max-w-sm text-sm leading-6 text-blue-100/80">Đăng nhập một lần để đồng bộ tiến độ, điểm số và ghi chú giữa điện thoại, máy tính và mọi trình duyệt.</p>
+            <p className="mt-4 max-w-sm text-sm leading-6 text-blue-100/80">Lưu trữ lộ trình học tập, lịch ôn luyện và điểm thi trực tiếp trên server riêng của bạn.</p>
           </div>
           <ul className="space-y-3 text-sm text-slate-200">
-            {['Mỗi tài khoản có dữ liệu riêng', 'Đồng bộ tự động lên cloud', 'Vẫn có thể sao lưu ra tệp JSON'].map((item) => <li key={item} className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-emerald-400" />{item}</li>)}
+            {['Mỗi người dùng có dữ liệu riêng biệt', 'Tự động lưu trên cơ sở dữ liệu server', 'Đồng bộ tức thì trên điện thoại và PC'].map((item) => (
+              <li key={item} className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4 text-emerald-400" />{item}</li>
+            ))}
           </ul>
         </section>
 
         <section className="p-6 text-stone-900 sm:p-10">
           <div className="mb-7 lg:hidden"><div className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-900 text-white"><Target className="h-5 w-5" /></div><h1 className="mt-3 text-xl font-black">TOEIC 700+ Study4 Roadmap</h1></div>
           <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-700">Tài khoản học tập</p>
-          <h2 className="mt-2 text-2xl font-black">{mode === 'login' ? 'Chào mừng bạn quay lại' : 'Tạo tài khoản mới'}</h2>
-          <p className="mt-1 text-sm text-stone-500">{mode === 'login' ? 'Đăng nhập để tiếp tục đúng tiến độ của bạn.' : 'Tiến độ của bạn sẽ được lưu riêng và đồng bộ online.'}</p>
+          <h2 className="mt-2 text-2xl font-black">{mode === 'login' ? 'Đăng nhập tài khoản' : 'Tạo tài khoản mới'}</h2>
+          <p className="mt-1 text-sm text-stone-500">{mode === 'login' ? 'Nhập tên tài khoản để tải lộ trình của bạn.' : 'Tài khoản được lưu an toàn trực tiếp trên server.'}</p>
 
           <div className="mt-6 grid grid-cols-2 rounded-xl bg-stone-100 p-1 text-sm font-bold">
             <button type="button" onClick={() => switchMode('login')} className={`rounded-lg px-3 py-2.5 transition-colors ${mode === 'login' ? 'bg-white text-slate-950 shadow-sm' : 'text-stone-500'}`}>Đăng nhập</button>
