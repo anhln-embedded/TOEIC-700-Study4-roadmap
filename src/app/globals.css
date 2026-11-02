@@ -1,0 +1,179 @@
+@import "tailwindcss";
+
+/*
+ * The original UI used amber for surfaces, borders and actions at the same
+ * time.  Keep the existing utility names in the components, but turn them
+ * into a calm blue product palette so every screen shares one visual system.
+ */
+@theme inline {
+  --color-amber-50: #f5f8ff;
+  --color-amber-100: #e8efff;
+  --color-amber-200: #d5e1fb;
+  --color-amber-300: #b7ccf6;
+  --color-amber-400: #7fa5ed;
+  --color-amber-500: #4979dc;
+  --color-amber-600: #315fc1;
+  --color-amber-700: #294d9d;
+  --color-amber-800: #263f7d;
+  --color-amber-900: #243866;
+  --color-amber-950: #172342;
+
+  --color-yellow-50: #f4f8ff;
+  --color-yellow-100: #e8f1ff;
+  --color-yellow-200: #d4e5ff;
+  --color-yellow-300: #b6d2ff;
+  --color-yellow-400: #83b2f5;
+  --color-yellow-500: #5b91e8;
+  --color-yellow-600: #3e71cf;
+}
+
+:root {
+  --background: #f4f7fb;
+  --foreground: #172033;
+  color-scheme: light;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  min-width: 320px;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  outline-offset: 2px;
+}
+
+:focus-visible {
+  outline: 2px solid #4979dc;
+}
+
+::selection {
+  background: #315fc1;
+  color: #fff;
+}
+
+.dark {
+  --background: #0b1120;
+  --foreground: #e7edf8;
+  --color-amber-50: #111b30;
+  --color-amber-100: #182642;
+  --color-amber-200: #233758;
+  --color-amber-300: #34527f;
+  --color-amber-400: #6f9de6;
+  --color-amber-500: #7da8ee;
+  --color-amber-600: #9abcf3;
+  --color-amber-700: #b7cff8;
+  --color-amber-800: #d1e0fb;
+  --color-amber-900: #e2ebfd;
+  --color-amber-950: #f1f5ff;
+  color-scheme: dark;
+}
+
+.dark .bg-white {
+  background-color: #111827;
+}
+
+.dark .bg-white\/90 {
+  background-color: rgb(17 24 39 / 0.9);
+}
+
+.dark .bg-amber-50,
+.dark .bg-amber-50\/70,
+.dark .bg-amber-50\/40,
+.dark .bg-amber-50\/30 {
+  background-color: #111b30;
+}
+
+.dark .bg-amber-100,
+.dark .bg-amber-100\/70,
+.dark .bg-amber-100\/60 {
+  background-color: #182642;
+}
+
+.dark .bg-amber-200 {
+  background-color: #233758;
+}
+
+.dark .primary-header-action {
+  background-color: #f8fafc;
+  color: #172342;
+  border-color: rgb(255 255 255 / 0.8);
+}
+
+.dark .primary-header-action svg {
+  color: #315fc1;
+}
+
+.dark .text-stone-900,
+.dark .text-stone-800,
+.dark .text-stone-700 {
+  color: #e5e7eb;
+}
+
+.dark .text-stone-600,
+.dark .text-stone-500 {
+  color: #aeb8c8;
+}
+
+.dark .text-stone-400 {
+  color: #8d99aa;
+}
+
+.dark .bg-stone-100 {
+  background-color: #1f2937;
+}
+
+.dark .bg-stone-100\/70,
+.dark .bg-stone-100\/50 {
+  background-color: rgb(31 41 55 / 0.88);
+}
+
+.dark .text-amber-700,
+.dark .text-amber-800,
+.dark .text-amber-900,
+.dark .text-amber-950 {
+  color: #dbeafe;
+}
+
+.dark .border-stone-200,
+.dark .border-stone-300 {
+  border-color: #334155;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #aebbd0;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #7f90aa;
+  background-clip: padding-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
