@@ -13,6 +13,8 @@
 - Đồng hồ mô phỏng thời gian làm bài 120 phút.
 - Cẩm nang 43 dạng câu hỏi thuộc TOEIC Part 1–7.
 - Giao diện sáng/tối và bố cục responsive.
+- Đăng ký/đăng nhập bằng email; mỗi tài khoản có tiến độ riêng.
+- Đồng bộ dữ liệu giữa nhiều thiết bị theo thời gian thực.
 - Sao lưu và phục hồi tiến độ bằng tệp JSON.
 
 ## Công nghệ
@@ -22,6 +24,7 @@
 - TypeScript
 - Tailwind CSS 4
 - Lucide React
+- Supabase Auth, Postgres, Realtime và Row Level Security
 
 ## Chạy dự án
 
@@ -29,10 +32,27 @@ Yêu cầu Node.js 20 trở lên.
 
 ```bash
 npm install
+copy .env.example .env.local
 npm run dev
 ```
 
-Mở [http://localhost:3000](http://localhost:3000). Nếu cổng 3000 đang được sử dụng, Next.js sẽ tự chọn cổng kế tiếp.
+Trước khi chạy ứng dụng, cần cấu hình Supabase theo phần bên dưới. Sau đó mở [http://localhost:3000](http://localhost:3000). Nếu cổng 3000 đang được sử dụng, Next.js sẽ tự chọn cổng kế tiếp.
+
+## Cấu hình Supabase
+
+1. Tạo một project tại [Supabase Dashboard](https://supabase.com/dashboard).
+2. Mở **SQL Editor**, dán toàn bộ nội dung [supabase/schema.sql](supabase/schema.sql) và chạy một lần.
+3. Mở **Project Settings → API** và lấy Project URL cùng anon/publishable key.
+4. Tạo `.env.local` từ `.env.example`:
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-or-publishable-key
+```
+
+5. Trong **Authentication → URL Configuration**, thêm địa chỉ local và domain production vào Redirect URLs.
+
+Chỉ sử dụng anon/publishable key ở frontend. Không đưa secret key hoặc service-role key vào `.env.local`, GitHub hay Vercel.
 
 ## Kiểm tra và build
 
@@ -52,9 +72,16 @@ npm.cmd run build
 
 ## Dữ liệu người dùng
 
-Tiến độ, điểm số, ghi chú và lựa chọn giao diện được lưu trong `localStorage` của trình duyệt. Ứng dụng không gửi dữ liệu học tập đến máy chủ. Hãy dùng nút **Sao lưu** định kỳ để tải dữ liệu ra tệp JSON.
+Tiến độ, điểm số, ghi chú và lựa chọn giao diện được lưu trong bảng `study_profiles` trên Supabase. Mỗi hàng gắn với `auth.uid()` của người dùng; chính sách Row Level Security chỉ cho phép tài khoản đọc và sửa dữ liệu của mình.
 
-Khi thay trình duyệt, xóa dữ liệu trang hoặc dùng thiết bị khác, hãy dùng nút **Phục hồi** và chọn tệp sao lưu trước đó.
+Ứng dụng không dùng `localStorage` làm nơi lưu tiến độ. Người dùng chỉ cần đăng nhập cùng tài khoản trên thiết bị khác để tiếp tục. Chức năng sao lưu/phục hồi JSON vẫn được giữ để có bản dự phòng ngoại tuyến.
+
+## Triển khai Vercel
+
+1. Import repository GitHub vào Vercel.
+2. Khai báo `NEXT_PUBLIC_SUPABASE_URL` và `NEXT_PUBLIC_SUPABASE_ANON_KEY` trong Project Settings → Environment Variables.
+3. Deploy, sau đó thêm URL Vercel vào Supabase Authentication → URL Configuration.
+4. Bật email confirmation trong Supabase nếu muốn người dùng xác minh email trước khi đăng nhập.
 
 ## Cấu trúc chính
 
@@ -65,8 +92,12 @@ src/
 │   ├── layout.tsx        # Metadata và root layout
 │   └── page.tsx          # Trạng thái và màn hình chính
 ├── components/           # Các thành phần giao diện
-└── data/
-    └── scheduleData.ts   # Lộ trình 56 ngày và liên kết đề
+├── data/
+│   └── scheduleData.ts   # Lộ trình 56 ngày và liên kết đề
+└── lib/
+    └── supabase.ts       # Supabase browser client
+supabase/
+└── schema.sql            # Bảng dữ liệu và chính sách RLS
 ```
 
 ## Nguồn tham khảo

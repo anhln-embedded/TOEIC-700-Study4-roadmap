@@ -1,7 +1,9 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import type { User } from '@supabase/supabase-js';
 import { Header } from '@/components/Header';
+import { AuthScreen } from '@/components/AuthScreen';
 import { DashboardStats } from '@/components/DashboardStats';
 import { StrategyBanner } from '@/components/StrategyBanner';
 import { ScoreProgressChart } from '@/components/ScoreProgressChart';
@@ -10,10 +12,7 @@ import { DayCard } from '@/components/DayCard';
 import { ExamTimerModal } from '@/components/ExamTimerModal';
 import { QuickToast } from '@/components/QuickToast';
 import { SCHEDULE_DATA, UserProgressMap } from '@/data/scheduleData';
-
-// New key prevents progress from the removed ETS curriculum being assigned to
-// unrelated days in the current TOEIC LR Collection curriculum.
-const STORAGE_KEY = 'toeic_700_study4_collections_3_4_v3';
+import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
 export default function Home() {
   const [progress, setProgress] = useState<UserProgressMap>({});
@@ -24,37 +23,146 @@ export default function Home() {
   const [isTimerOpen, setIsTimerOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+  const [authReady, setAuthReady] = useState(!isSupabaseConfigured);
+  const [dataReady, setDataReady] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'saved' | 'saving' | 'error'>('saved');
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Load progress from localStorage on mount
+  // Restore the Supabase session. Authentication state is shared safely across tabs,
+  // while learning data itself always comes from the database.
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        // Progress exists only in the browser, so it must hydrate after mount.
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setProgress(JSON.parse(stored));
-      }
-      const themePref = localStorage.getItem('toeic_theme_pref');
-      if (themePref === 'dark') {
-        setIsDarkMode(true);
-        document.documentElement.classList.add('dark');
-      } else {
+    const client = supabase;
+    if (!client) return;
+
+    let active = true;
+    client.auth.getSession().then(({ data }) => {
+      if (!active) return;
+      setUser(data.session?.user ?? null);
+      setAuthReady(true);
+    });
+
+    const { data: authListener } = client.auth.onAuthStateChange((_event, session) => {
+      if (!active) return;
+      setUser(session?.user ?? null);
+      setDataReady(false);
+      if (!session) {
+        setProgress({});
         setIsDarkMode(false);
         document.documentElement.classList.remove('dark');
       }
-    } catch (e) {
-      console.error('Failed to load localStorage', e);
-    }
+      setAuthReady(true);
+    });
+
+    return () => {
+      active = false;
+      authListener.subscription.unsubscribe();
+    };
   }, []);
 
-  // Save progress to localStorage
+  // Load the signed-in user's private row and listen for changes from other devices.
+  useEffect(() => {
+    const client = supabase;
+    if (!client || !user) return;
+
+    let active = true;
+
+    const loadProfile = async () => {
+      setSyncStatus('saving');
+      const { data, error } = await client
+        .from('study_profiles')
+        .select('progress, theme')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (!active) return;
+      if (error) {
+        console.error('Failed to load cloud progress', error);
+        setSyncStatus('error');
+        setDataReady(true);
+        return;
+      }
+
+      const cloudProgress = (data?.progress ?? {}) as UserProgressMap;
+      const cloudTheme = data?.theme === 'dark';
+      setProgress(cloudProgress);
+      setIsDarkMode(cloudTheme);
+      document.documentElement.classList.toggle('dark', cloudTheme);
+
+      if (!data) {
+        const { error: createError } = await client.from('study_profiles').insert({
+          user_id: user.id,
+          progress: {},
+          theme: 'light',
+        });
+        if (createError) {
+          console.error('Failed to create cloud profile', createError);
+          setSyncStatus('error');
+          setDataReady(true);
+          return;
+        }
+      }
+
+      setSyncStatus('saved');
+      setDataReady(true);
+    };
+
+    void loadProfile();
+
+    const channel = client
+      .channel(`study-profile-${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'study_profiles', filter: `user_id=eq.${user.id}` },
+        (payload) => {
+          if (!active) return;
+          const row = payload.new as { progress?: UserProgressMap; theme?: 'light' | 'dark' };
+          if (row.progress) setProgress(row.progress);
+          if (row.theme) {
+            const nextDarkMode = row.theme === 'dark';
+            setIsDarkMode(nextDarkMode);
+            document.documentElement.classList.toggle('dark', nextDarkMode);
+          }
+          setSyncStatus('saved');
+        },
+      )
+      .subscribe();
+
+    return () => {
+      active = false;
+      void client.removeChannel(channel);
+    };
+  }, [user]);
+
+  useEffect(() => () => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+  }, []);
+
+  const queueCloudSave = (nextProgress: UserProgressMap, nextDarkMode: boolean) => {
+    const client = supabase;
+    if (!client || !user) return;
+
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    setSyncStatus('saving');
+    saveTimerRef.current = setTimeout(async () => {
+      const { error } = await client.from('study_profiles').upsert({
+        user_id: user.id,
+        progress: nextProgress,
+        theme: nextDarkMode ? 'dark' : 'light',
+        updated_at: new Date().toISOString(),
+      });
+      if (error) {
+        console.error('Failed to sync cloud progress', error);
+        setSyncStatus('error');
+      } else {
+        setSyncStatus('saved');
+      }
+    }, 500);
+  };
+
   const saveProgress = (newProgress: UserProgressMap) => {
     setProgress(newProgress);
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(newProgress));
-    } catch (e) {
-      console.error('Failed to save to localStorage', e);
-    }
+    queueCloudSave(newProgress, isDarkMode);
   };
 
   const showToast = (msg: string) => {
@@ -68,13 +176,22 @@ export default function Home() {
   const handleToggleTheme = () => {
     const next = !isDarkMode;
     setIsDarkMode(next);
-    if (next) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('toeic_theme_pref', 'dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('toeic_theme_pref', 'light');
-    }
+    document.documentElement.classList.toggle('dark', next);
+    queueCloudSave(progress, next);
+  };
+
+  const handleSignOut = async () => {
+    const client = supabase;
+    if (!client || !user) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    setSyncStatus('saving');
+    await client.from('study_profiles').upsert({
+      user_id: user.id,
+      progress,
+      theme: isDarkMode ? 'dark' : 'light',
+      updated_at: new Date().toISOString(),
+    });
+    await client.auth.signOut();
   };
 
   // Score Updater
@@ -184,6 +301,30 @@ export default function Home() {
     return true;
   });
 
+  if (!authReady) {
+    return (
+      <main className="min-h-screen bg-slate-950 text-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="mx-auto h-9 w-9 animate-spin rounded-full border-4 border-white/20 border-t-white" />
+          <p className="mt-4 text-sm font-semibold text-slate-300">Đang kiểm tra phiên đăng nhập…</p>
+        </div>
+      </main>
+    );
+  }
+
+  if (!user) return <AuthScreen />;
+
+  if (!dataReady) {
+    return (
+      <main className="min-h-screen bg-slate-950 text-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="mx-auto h-9 w-9 animate-spin rounded-full border-4 border-white/20 border-t-blue-400" />
+          <p className="mt-4 text-sm font-semibold text-slate-300">Đang tải tiến độ từ cloud…</p>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[var(--background)] text-stone-800 flex flex-col antialiased">
       
@@ -194,6 +335,9 @@ export default function Home() {
         onImport={handleImport}
         isDarkMode={isDarkMode}
         onToggleTheme={handleToggleTheme}
+        userEmail={user.email ?? 'Tài khoản học tập'}
+        syncStatus={syncStatus}
+        onSignOut={() => { void handleSignOut(); }}
       />
 
       {/* Main Container */}
@@ -257,7 +401,7 @@ export default function Home() {
       {/* Footer */}
       <footer className="border-t border-amber-200/80 bg-white py-6 px-4 text-center text-xs text-stone-500">
         <p className="font-semibold text-amber-900">TOEIC 700+ Study4 Roadmap | Lộ trình luyện thi 8 tuần</p>
-        <p className="mt-1">Dữ liệu được lưu an toàn trực tiếp trên trình duyệt của bạn (Local Storage)</p>
+        <p className="mt-1">Tiến độ được đồng bộ riêng theo tài khoản qua Supabase · Không lưu dữ liệu học tập trong localStorage</p>
       </footer>
 
       {/* Exam Timer Modal */}
